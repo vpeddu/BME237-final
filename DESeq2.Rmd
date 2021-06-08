@@ -1,0 +1,535 @@
+---
+title: "DESeq2"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+# Load libraries
+```{r}
+library("DESeq2")
+library("apeglm")
+library("tximport")
+library("readr")
+library("stringr")
+library("tximportData")
+library("EnhancedVolcano")
+library("ggplot2")
+library("scales")
+library("dplyr")
+library("data.table")
+
+```
+# Import list of immune-related genes: innateDB: IRIS gene set
+```{r}
+# Human immune gene list
+immune_genes <- read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/InnateDB_genes_IRIS.csv")
+innate_genes <- read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/innate_immunity_genes_mouse_and_human.csv")
+
+# Specific pathways
+autophagy <- read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/human_autophagy.csv")
+chemokine <- read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/human_chemokine_pathway.csv")
+complement <- read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/human_complement_cascade.csv")
+cyto_DNA <- read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/human_cytosolic_DNA_sensing.csv")
+Jak_STAT_pathway <-read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/human_Jak_STAT.csv")
+MAPK_pathway <-read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/human_MAPK.csv")
+mTOR_pathway <-read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/human_mTOR.csv")
+NK_cytotoxicity <- read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/human_NK_cytotoxicity.csv")
+NOD_receptor <-read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/human_NOD_receptor.csv")
+RIG_I_receptor <-read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/human_RIG_I_receptor.csv")
+TLR <-read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/human_TLR.csv")
+
+```
+
+```{r}
+# Mouse immune gene list from: http://www.informatics.jax.org/go/term/GO:0002376
+immune_genes <- read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/mouse_immune_genes.csv")
+innate_genes <- read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/innate_immunity_genes_mouse_and_human.csv")
+
+# Specific pathways
+autophagy <- read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/mouse_autophagy.csv")
+chemokine <- read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/mouse_chemokine_pathway.csv")
+complement <- read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/mouse_complement_cascade.csv")
+cyto_DNA <- read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/mouse_cytosolic_DNA_sensing.csv")
+Jak_STAT_pathway <-read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/mouse_Jak_STAT.csv")
+MAPK_pathway <-read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/mouse_MAPK.csv")
+mTOR_pathway <-read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/mouse_mTOR.csv")
+NK_cytotoxicity <- read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/mouse_NK_cytotoxicity.csv")
+NOD_receptor <-read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/mouse_NOD_receptor.csv")
+RIG_I_receptor <-read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/mouse_RIG_I_receptor.csv")
+TLR <-read.csv("/home/alexandergeorge/brookslab/RESOURCES/InnateDB_gene_lists/mouse_TLR.csv")
+```
+
+# Define countDir, sampleFile, codingFile, title
+
+# BME 237 Problem Set 2 Dataset
+```{r}
+countDir <- "/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/ProblemSet2/"
+sampleFile <- read.csv(file.path("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/ProblemSet2/metadata.csv"))
+codingFile <- read_csv(file.path("/home/alexandergeorge/brookslab/RESOURCES/tx2gene.gencode.v36.csv"))
+title = "HOXA1_KD Vs. Ctrl"
+axe = c()
+pCutoff = 0.05
+FCcutoff = 1
+countFileName = paste0(countDir, "HOXA1_KD_normalized_count.csv")
+save = TRUE
+```
+# Brooks U2AF1-KRAS Data
+```{r}
+countDir <- "/home/alexandergeorge/brookslab/Data/U2AF1_KRAS_Brooks/counts_4thcol/"
+# A simple metadata file: samples, filenames & conditions
+sampleFile <- read.csv(file.path("/home/alexandergeorge/brookslab/Data/U2AF1_KRAS_Brooks/metadata.csv"))
+codingFile <- read_csv(file.path("/home/alexandergeorge/brookslab/RESOURCES/tx2gene.gencode.v36.csv"))
+title = "U2AF1-MUT-LacZ Vs. U2AF1-WT-LacZ"
+axe = c() 
+pCutoff = 1e-4
+FCcutoff = 1.5
+
+countFileName = paste0(countDir, "U2AF1_normalized_count.csv")
+upCounts = paste0(countDir, "upregulated_count.csv")
+downCounts = paste0(countDir, "downregulated_count.csv")
+immuneCountFileName = paste0(countDir, "U2AF1_normalized_Immune_count.csv")
+innateCount = paste0(countDir, "innate_count.csv")
+autophagyCount = paste0(countDir, "autophagy_count.csv")
+chemokineCount = paste0(countDir, "chemokine_count.csv")
+complementCount = paste0(countDir, "complement_count.csv")
+cytoDNACount = paste0(countDir, "cytoDNAsensing_count.csv")
+JakSTATCount = paste0(countDir, "JakSTAT_count.csv")
+MAPKCount = paste0(countDir, "MAPK_count.csv")
+mTORCount = paste0(countDir, "mTOR_count.csv")
+NKCount = paste0(countDir, "NKcytotoxicity_count.csv")
+NODCount = paste0(countDir, "NOD_count.csv")
+RIGCount = paste0(countDir, "RIG_count.csv")
+TLRCount = paste0(countDir, "TLR_count.csv")
+
+save = TRUE
+
+```
+# Carpenter A2B1 Data
+```{r}
+countDir <- "/home/alexandergeorge/brookslab/Data/A2B1_Carpenter/counts_4thcol/"
+# A simple metadata file: samples, filenames & conditions
+sampleFile <- read.csv(file.path("/home/alexandergeorge/brookslab/Data/A2B1_Carpenter/LPS_samples.csv"))
+codingFile <- read_csv(file.path("/home/alexandergeorge/brookslab/RESOURCES/tx2codingGene.gencode.vM25.csv"))
+title = "A2B1_KO_LPS Vs. A2B1_WT_LPS"
+axe = c()
+pCutoff = 1e-4
+FCcutoff = 1.5
+
+countFileName = paste0(countDir, "KO_LPS_vs_WT_LPS_normalized_count.csv")
+upCounts = paste0(countDir, "upregulated_count.csv")
+downCounts = paste0(countDir, "downregulated_count.csv")
+immuneCountFileName = paste0(countDir, "KO_LPS_vs_WT_LPS_normalized_Immune_count.csv")
+innateCount = paste0(countDir, "LPS_innate_count.csv")
+autophagyCount = paste0(countDir, "LPS_autophagy_count.csv")
+chemokineCount = paste0(countDir, "LPS_chemokine_count.csv")
+complementCount = paste0(countDir, "LPS_complement_count.csv")
+cytoDNACount = paste0(countDir, "LPS_cytoDNAsensing_count.csv")
+JakSTATCount = paste0(countDir, "LPS_JakSTAT_count.csv")
+MAPKCount = paste0(countDir, "LPS_MAPK_count.csv")
+mTORCount = paste0(countDir, "LPS_mTOR_count.csv")
+NKCount = paste0(countDir, "LPS_NKcytotoxicity_count.csv")
+NODCount = paste0(countDir, "LPS_NOD_count.csv")
+RIGCount = paste0(countDir, "LPS_RIG_count.csv")
+TLRCount = paste0(countDir, "LPS_TLR_count.csv")
+
+save = TRUE
+```
+# RBM3 Data (Mouse Innate Lymphoid Cells)
+```{r}
+countDir <- "/home/alexandergeorge/brookslab/Data/RBM3_Doherty/counts_4thcol/"
+# A simple metadata file: samples, filenames & conditions
+sampleFile <- read.csv(file.path("/home/alexandergeorge/brookslab/Data/RBM3_Doherty/metadata.csv"))
+codingFile <- read_csv(file.path("/home/alexandergeorge/brookslab/RESOURCES/tx2codingGene.gencode.vM25.csv"))
+title = "Mouse ILCs: RBM3_KO Vs. WT"
+axe = c() 
+pCutoff = 1e-4
+FCcutoff = 1.5
+
+countFileName = paste0(countDir, "RBM3_normalized_count.csv")
+upCounts = paste0(countDir, "upregulated_count.csv")
+downCounts = paste0(countDir, "downregulated_count.csv")
+immuneCountFileName = paste0(countDir, "RBM3_normalized_Immune_count.csv")
+innateCount = paste0(countDir, "innate_count.csv")
+autophagyCount = paste0(countDir, "autophagy_count.csv")
+chemokineCount = paste0(countDir, "chemokine_count.csv")
+complementCount = paste0(countDir, "complement_count.csv")
+cytoDNACount = paste0(countDir, "cytoDNAsensing_count.csv")
+JakSTATCount = paste0(countDir, "JakSTAT_count.csv")
+MAPKCount = paste0(countDir, "MAPK_count.csv")
+mTORCount = paste0(countDir, "mTOR_count.csv")
+NKCount = paste0(countDir, "NKcytotoxicity_count.csv")
+NODCount = paste0(countDir, "NOD_count.csv")
+RIGCount = paste0(countDir, "RIG_count.csv")
+TLRCount = paste0(countDir, "TLR_count.csv")
+
+save = TRUE
+
+```
+
+# txdb objects
+```{r}
+chimp_txdb <- read.csv("/home/alexandergeorge/sanfordlab/RESOURCES/panTro6_cat_chimp_txdb.csv")
+human_txdb <- read.csv("/home/alexandergeorge/sanfordlab/RESOURCES/hg38_cat_human_txdb.csv")
+orang_txdb <- read.csv("/home/alexandergeorge/sanfordlab/RESOURCES/ponAbe3_cat_orang_txdb.csv")
+```
+# subsetting ht-seq counts by shared geneIDs
+```{r}
+cips_cyto_jd940 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_cips_cyto_jd940_panTro6.txt")
+cips_cyto_jd946 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_cips_cyto_jd946_panTro6.txt")
+cips_mono_jd942 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_cips_mono_jd942_panTro6.txt")
+cips_mono_jd948 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_cips_mono_jd948_panTro6.txt")
+cips_polh_jd945 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_cips_polh_jd945_panTro6.txt")
+cips_polh_jd951 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_cips_polh_jd951_panTro6.txt")
+hips_cyto_jd952 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_hips_cyto_jd952_hg38.txt")
+hips_cyto_jd958 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_hips_cyto_jd958_hg38.txt")
+hips_mono_jd954 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_hips_mono_jd954_hg38.txt")
+hips_mono_jd960 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_hips_mono_jd960_hg38.txt")
+hips_polh_jd957 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_hips_polh_jd957_hg38.txt")
+hips_polh_jd963 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_hips_polh_jd963_hg38.txt")
+oips_cyto_jd928 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_oips_cyto_jd928_ponAbe3.txt")
+oips_cyto_jd934 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_oips_cyto_jd934_ponAbe3.txt")
+oips_mono_jd930 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_oips_mono_jd930_ponAbe3.txt")
+oips_mono_jd936 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_oips_mono_jd936_ponAbe3.txt")
+oips_polh_jd933 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_oips_polh_jd933_ponAbe3.txt")
+oips_polh_jd939 <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output/filtered_oips_polh_jd939_ponAbe3.txt")
+
+
+hips_mono_jd960_sub <- setDT(oips_polh_jd939_sub)[V1 %chin% cips_cyto_jd940_sub$V1]
+
+
+write_delim(hips_mono_jd960_sub, "/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_subset/hips_mono_jd960_sub.txt", delim="\t", col_names=FALSE)
+
+```
+# Subsetting for only RBPs in DE results
+```{r}
+rbps <- read.csv("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/RESOURCES/all_RBPs.csv", header=TRUE)
+
+chimp_cyto_mono_nofilter <- read.table("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/DE_results/orang_cyto_mono_nofilter.csv", header=TRUE)
+
+chimp_cyto_mono_nofilter <- setDT(chimp_cyto_mono_nofilter)[Symbol %chin% rbps$Symbol]
+chimp_cyto_mono_nofilter <- chimp_cyto_mono_nofilter[!duplicated(chimp_cyto_mono_nofilter$Symbol), ]
+write.csv(chimp_cyto_mono_nofilter, "/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/DE_results/subset_rbps/orang_cyto_mono_nofilter.csv")
+
+```
+# Finding common and uncommon RBPs based on polyribosome fraction.
+```{r}
+# Common
+chimp_mono_vs_cyto <- read.csv("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/DE_results/subset_rbps/chimp_mono_vs_cyto_nofilter.csv", header=TRUE)
+orang_mono_vs_cyto <- read.csv("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/DE_results/subset_rbps/orang_mono_vs_cyto_nofilter.csv", header=TRUE)
+human_mono_vs_cyto <- read.csv("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/DE_results/subset_rbps/human_mono_vs_cyto_nofilter.csv", header=TRUE)
+
+common_df <- inner_join(chimp_mono_vs_cyto, orang_mono_vs_cyto, by="Symbol")
+common_df <- inner_join(common_df, human_mono_vs_cyto, by="Symbol")
+common_df <- common_df[!duplicated(common_df$GeneID.x), ]
+common_df <- select(common_df, "GeneID.x", "TranscriptID.x", "Symbol", "log2FoldChange.x", "padj.x", "log2FoldChange.y", "padj.y", "log2FoldChange", "padj")
+common_df <- common_df %>% rename(GeneID = GeneID.x, TranscriptID = TranscriptID.x,
+                     chimp_L2FC = log2FoldChange.x, chimp_padj = padj.x,
+                     orang_L2FC = log2FoldChange.y, orang_padj = padj.y,
+                     human_L2FC = log2FoldChange, human_padj = padj)
+
+common_df <- merge(common_df, rbps, by="Symbol")
+common_df <- common_df[!duplicated(common_df$Symbol), ]
+
+write.csv(common_df, "/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/DE_results/interspecies/mono_all.csv")
+
+common_df <- mutate(common_df, log2FoldChange = rowMeans(select(common_df, ends_with("L2FC")), na.rm = TRUE))
+common_df <- mutate(common_df, padj = rowMeans(select(common_df, ends_with("padj")), na.rm = TRUE))
+
+title = "Commonly DE RBPs across species (monoribosomal vs. cytosolic fraction)"
+axe = c() 
+pCutoff = 0.01
+FCcutoff = 1.5
+
+# Uncommon
+length(setdiff(chimp_mono_vs_cyto_rbp$Symbol, orang_mono_vs_cyto_rbp$Symbol))
+```
+# Manipulating comparison tables
+```{r}
+chimp_intra <- read.csv("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/DE_results/chimp_intraspecies.csv", header=TRUE)
+chimp_intra <- chimp_intra %>% group_by(GeneID) %>% filter(dplyr::n_distinct(fraction) > 1)
+human_intra <- read.csv("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/DE_results/human_intraspecies.csv", header=TRUE)
+human_intra <- human_intra %>% group_by(GeneID) %>% filter(dplyr::n_distinct(fraction) > 1)
+orang_intra <- read.csv("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/DE_results/orang_intraspecies.csv", header=TRUE)
+orang_intra <- orang_intra %>% group_by(GeneID) %>% filter(dplyr::n_distinct(fraction) > 1)
+
+conserved <- merge(chimp_intra, human_intra, by="TranscriptID")
+conserved <- merge(conserved, orang_intra, by="TranscriptID")
+
+conserved <- select(conserved, "fraction.x", "GeneID.x", "TranscriptID", "Symbol.x", "log2FoldChange.x", "padj.x", "log2FoldChange.y", "padj.y", "log2FoldChange", "padj")
+conserved <- conserved %>% rename(fraction = fraction.x, GeneID = GeneID.x, Symbol = Symbol.x,
+                     chimp_L2FC = log2FoldChange.x, chimp_padj = padj.x,
+                     orang_L2FC = log2FoldChange.y, orang_padj = padj.y,
+                     human_L2FC = log2FoldChange, human_padj = padj)
+
+conserved <- conserved[!duplicated(conserved$TranscriptID), ]
+
+write.csv(conserved, "/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/DE_results/interspecies/conserved_ASTC.csv")
+conserved <- read.csv("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/DE_results/interspecies/conserved_ASTC.csv", header=TRUE)
+
+unique_ASTC_genes <- unique(conserved$GeneID)
+unique_ASTC_transcripts <- unique(conserved$TranscriptID)
+
+human_intra_rbp <- merge(human_intra, rbps, by="Symbol")
+human_intra_rbp <- human_intra_rbp[!duplicated(human_intra_rbp$TranscriptID), ]
+write.csv(human_intra_rbp, "/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/DE_results/interspecies/human_RBP.csv")
+
+```
+
+# DE Comparisons
+```{r}
+countDir <- "/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_subset/"
+# A simple metadata file: samples, filenames & conditions
+sampleFile <- read.csv(file.path("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/orang_cyto_mono_metadata.csv"))
+codingFile <- read_csv(file.path("/home/alexandergeorge/sanfordlab/RESOURCES/hg38_cat_human_txdb.csv"))
+title = "Human vs. Chimpanzee iPSC heavy polyribosomal fraction"
+axe = c() 
+pCutoff = 0.01
+FCcutoff = 1.5
+
+countFileName = paste0("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/DE_results/orang_cyto_mono_nofilter.csv")
+save = TRUE
+
+```
+```{r}
+countDir <- "/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/htseq_output"
+sampleFile <- read.csv(file.path("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/human_cyto_mono_metadata.csv"))
+codingFile <- read.csv(file.path("/home/alexandergeorge/sanfordlab/RESOURCES/hg38_cat_human_txdb.csv"))
+countFileName = paste0("/home/alexandergeorge/classwork/BME237_RNA_Bioinformatics/Project/DE_results/", "human_mono_vs_cyto.csv")
+```
+
+# Defining the outputs
+```{r}
+deseqOutputList = runDeseq(countDir = countDir, codingFile = codingFile, sampleFile = sampleFile)
+
+pcaPlot(deseqObj = deseqOutputList$deseq_dds, sampleFile = sampleFile, 
+                  saveDir = countDir, save = save, title = title)
+
+volcanoPlot(deseqObj = deseqOutputList$de_results, title = title, 
+            pCutoff = pCutoff, FCcutoff = FCcutoff, axe = axe, save=save, saveDir = countDir)
+
+volcanoPlot(deseqObj = common_df, title = title, 
+            pCutoff = pCutoff, FCcutoff = FCcutoff, axe = axe, save=save, saveDir = countDir)
+
+write.table(deseqOutputList$de_results[order(deseqOutputList$de_results$padj) , ],
+            file = countFileName, quote=F, col.names=T, row.names=F, sep="\t")
+
+```
+
+# Define DESeq2 Run parameters
+```{r}
+runDeseq <- function(countDir, codingFile, sampleFile, ref=base){
+  
+  tx2gene <- codingFile
+  sampletable <- sampleFile
+  sampletable$condition <- as.factor(sampletable$condition)
+  
+  
+  dds <- DESeqDataSetFromHTSeqCount(sampleTable = sampletable,
+                                    directory = countDir,
+                                    design = ~ condition)
+  
+  print("Rows before filtering: ")
+  print(nrow(dds))
+  
+  dds <- dds[rowSums(counts(dds)) > 10, ]
+
+  print("Rows after filtering: ")
+  print(nrow(dds))
+  
+  dds <- DESeq(dds, betaPrior=FALSE)
+  
+  name <- resultsNames(dds)[2]
+  print(resultsNames(dds))
+  
+  res <- results(object=dds, name=name)
+  res <- lfcShrink(dds, res=res, coef=name, type ="apeglm")
+  res <- res[order(res$pvalue),]
+  
+  temp <- data.frame(rownames(res), res)
+  names(temp)[names(temp) == "rownames.res."] <- "GeneID"
+  geneIDs <- unique(tx2gene[,1:3])
+  
+    # Get baseMean for each condition
+  baseMeanPerLvl <- sapply( levels(dds$condition), function(lvl) rowMeans( counts(dds,normalized=TRUE)[,dds$condition == lvl, drop=F] ) )
+  baseMeanPerLvl <- as.data.frame(baseMeanPerLvl)
+  setDT(baseMeanPerLvl, keep.rownames = "GeneID")
+  colnames(baseMeanPerLvl)[2:3] <- paste(colnames(baseMeanPerLvl)[2:3], "baseMean", sep = "_") 
+  
+  # Merge everything together
+  de_symbols <- merge(geneIDs, baseMeanPerLvl, by="GeneID", all=F)
+  de_symbols <- merge(de_symbols, temp, by="GeneID", all=F)
+  
+  # Flip x axis so we're looking at DGE from the perspective of the non-control samples.
+#  de_symbols <- subset(de_symbols, abs(log2FoldChange) >= 1)
+#  de_symbols$log2FoldChange = de_symbols$log2FoldChange * -1
+#  de_symbols <- subset(de_symbols, padj <= 0.05)
+  
+  
+  return(list("de_results" = de_symbols, "deseq_dds" = dds)) 
+}
+```
+# Volcano plot function
+```{r}
+volcanoPlot <- function(deseqObj, title ="", pCutoff = 1e-5, FCcutoff = 1, axe = c(), 
+                        save = FALSE, saveDir = NULL){
+  
+  if (length(axe) != 0){
+    deseqObj <- deseqObj[!(deseqObj$Symbol %in% axe),]
+  }
+  
+  '%!in%' <- function(x,y)!('%in%'(x,y))
+  
+  volcano = EnhancedVolcano(deseqObj,
+                  title = title,
+                  subtitle = paste0('padj cutoff: ', pCutoff, "\t", "Log2FoldChange cutoff: ", FCcutoff),
+                  lab = deseqObj$Symbol,
+  # selectLab and colCustom are for selectively labeling immune-related genes.
+#                  selectLab = intersect(deseqObj$Symbol, immune_genes$name), 
+#                  colCustom = immunegenes,
+                  x = 'log2FoldChange',
+                  y = 'padj',
+                  pCutoff = pCutoff,
+                  FCcutoff = FCcutoff,
+                  labSize = 4.0,
+                  pointSize = 2.0,)
+  plot(volcano)
+  
+  if (save == TRUE){
+    image_title = str_replace_all(title, " ", "")
+    image_title = str_replace_all(image_title, "[()]", "_")
+    image_title = paste0(image_title, ".png")
+    print(image_title)
+    png(filename = paste0(saveDir, image_title), 
+        width = 800, height = 800, units = "px")
+    
+    plot(volcano)
+    dev.off()
+    }
+}
+
+```
+# pcaPlot function
+```{r}
+pcaPlot <- function(deseqObj, sampleFile, saveDir = NULL, save = FALSE, title = ""){
+  
+  sampletable <- sampleFile
+  sampletable$condition <- as.factor(sampletable$condition)
+  
+  rld = rlog(deseqObj)
+
+  z = plotPCA(object = rld,
+              intgroup = "condition")
+  z = z + geom_text_repel(aes(label = name), size=4.5) + theme_bw(base_size = 16) + 
+    ggtitle(title)
+  plot(z)
+  
+  if(save == TRUE){
+    image_title = str_replace_all(title, " ", "")
+    image_title = str_replace_all(image_title, "[()]", "_")
+    print(image_title)
+    png(filename = paste0(saveDir, image_title, "pca.png"), 
+        width = 800, height = 650, units = "px")
+    
+    plot(z)
+    dev.off()
+  }
+}
+
+```
+# Pie Chart of different immune pathway genes
+```{r}
+unique_immune_genes <- unique(de_immune_symbols$Symbol)
+
+up_autophagy <- subset(autophagy_symbols, log2FoldChange > 0)
+down_autophagy <- subset(autophagy_symbols, log2FoldChange < 0)
+up_chemokine <- subset(chemokine_symbols, log2FoldChange > 0)
+down_chemokine <- subset(chemokine_symbols, log2FoldChange < 0)
+up_cytoDNA <- subset(cyto_DNA_symbols, log2FoldChange > 0)
+down_cytoDNA <- subset(cyto_DNA_symbols, log2FoldChange < 0)
+up_JakSTAT <- subset(Jak_STAT_symbols, log2FoldChange > 0)
+down_JakSTAT <- subset(Jak_STAT_symbols, log2FoldChange < 0)
+up_MAPK <- subset(MAPK_symbols, log2FoldChange > 0)
+down_MAPK <- subset(MAPK_symbols, log2FoldChange < 0)
+up_mTOR <- subset(mTOR_symbols, log2FoldChange > 0)
+down_mTOR <- subset(mTOR_symbols, log2FoldChange < 0)
+up_NK <- subset(NK_symbols, log2FoldChange > 0)
+down_NK <- subset(NK_symbols, log2FoldChange < 0)
+up_NOD <- subset(NOD_symbols, log2FoldChange > 0)
+down_NOD <- subset(NOD_symbols, log2FoldChange < 0)
+up_RIG <- subset(RIG_symbols, log2FoldChange > 0)
+down_RIG <- subset(RIG_symbols, log2FoldChange < 0)
+up_TLR <- subset(TLR_symbols, log2FoldChange > 0)
+down_TLR <- subset(TLR_symbols, log2FoldChange < 0)
+
+upAutophagy <- length(unique(up_autophagy$Symbol))
+downAutophagy <- length(unique(down_autophagy$Symbol))
+upChemokine <- length(unique(up_chemokine$Symbol))
+downChemokine <- length(unique(down_chemokine$Symbol))
+upCytoDNA <- length(unique(up_cytoDNA$Symbol))
+downCytoDNA <- length(unique(down_cytoDNA$Symbol))
+upJakSTAT <- length(unique(up_JakSTAT$Symbol))
+downJakSTAT <- length(unique(down_JakSTAT$Symbol))
+upMAPK <- length(unique(up_MAPK$Symbol))
+downMAPK <- length(unique(down_MAPK$Symbol))
+upmTOR <- length(unique(up_mTOR$Symbol))
+downmTOR <- length(unique(down_mTOR$Symbol))
+upNK <- length(unique(up_NK$Symbol))
+downNK <- length(unique(down_NK$Symbol))
+upNOD <- length(unique(up_NOD$Symbol))
+downNOD <- length(unique(down_NOD$Symbol))
+upRIG <- length(unique(up_RIG$Symbol))
+downRIG <- length(unique(down_RIG$Symbol))
+upTLR <- length(unique(up_TLR$Symbol))
+downTLR <- length(unique(down_TLR$Symbol))
+
+pathways <- c('autophagy', 'chemokine signaling', 'cytosolic DNA sensing', 'Jak-STAT pathway', 'MAPK pathway', 'mTOR pathway', 
+              'NK cell cytotoxicity', 'NOD-like receptor pathway', 'RIG-I-like receptor pathway', 'TLR pathway')
+pathwaygenes <- c(length(autophagy$name), length(chemokine$name), length(cyto_DNA$name), length(Jak_STAT_pathway$name), length(MAPK_pathway$name),
+                  length(mTOR_pathway$name), length(NK_cytotoxicity$name), length(NOD_receptor$name), length(RIG_I_receptor$name), length(TLR$name))
+numberofgenes <- c(unique_autophagy, unique_chemokine, unique_cytoDNA, unique_JakSTAT, unique_MAPK, unique_mTOR, unique_NK, unique_NOD, unique_RIG, unique_TLR)
+pieChart <- data.frame(pathways, pathwaygenes, numberofgenes)
+
+p <- ggplot(pieChart, aes(x="", y=numberofgenes, fill=pathway)) +
+  geom_bar(stat="identity", width = 1) +
+  coord_polar("y", start=0) +
+  theme_void() +
+  geom_text(aes(label = paste(round((numberofgenes / pathwaygenes)*100, 1))),
+            position = position_stack(vjust = 0.5)) 
+
+png("/home/alexandergeorge/brookslab/Data/RBM3_Doherty/counts_4thcol/pathway_piechart.png")
+print(p)
+dev.off()
+
+```
+# Stacked Barplot of the up and downregulated immune genes by pathway
+```{r}
+pathway_barplot <- read.csv("/home/alexandergeorge/brookslab/Data/pathway_immune_genes.csv")
+
+colours <- c( "#A54657",  "#582630", "#F7EE7F", "#4DAA57","#F1A66A","#F26157", "#F9ECCC", "#679289", "#33658A",
+"#F6AE2D")
+
+
+jpeg('/home/alexandergeorge/brookslab/Data/pathway_barplot.jpg', units="in", width=6, height=5, res=300)
+ggplot(pathway_barplot, aes(x=sample, fill=pathway, y=count)) + 
+    geom_bar(position="stack", stat="identity", color="black") +
+    theme(axis.text.x = element_text(angle = 90, size = 12, colour = "black", vjust = 0.5, hjust = 1), 
+    axis.title.y = element_text(size = 14), legend.title = element_text(size = 14), 
+    legend.text = element_text(size = 12, colour = "black"), 
+    axis.text.y = element_text(colour = "black", size = 12)) + 
+    scale_y_continuous(expand = c(0,0)) + 
+    labs(x = "", y = "Gene-level counts") + 
+    scale_fill_manual(values = colours) 
+
+dev.off()
+
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
